@@ -1,0 +1,15 @@
+[project]
+name = "document-qa-rag"
+version = "0.1.0"
+description = "Hỏi đáp tài liệu PDF/DOCX/TXT bằng RAG, có trích dẫn nguồn"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
