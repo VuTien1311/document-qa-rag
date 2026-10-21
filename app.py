@@ -27,6 +27,8 @@ def show_sources(sources: list) -> None:
     for n, hit in sources:
         with st.expander(f"[{n}] {pipeline.source_label(hit)}"):
             st.caption(f"Độ liên quan: {hit['score']:.2f}")
+            if hit["location"].startswith("http"):
+                st.markdown(f"[Mở trang gốc]({hit['location']})")
             st.markdown(hit["text"].replace("\n", "  \n"))  # giữ nguyên xuống dòng như tài liệu gốc
 
 
@@ -66,16 +68,20 @@ with st.sidebar:
     docs = store.list_documents()
     if not docs:
         st.caption("Chưa có tài liệu nào. Tải lên để bắt đầu hỏi đáp.")
-    for doc in docs:
-        ext = doc["file"].rsplit(".", 1)[-1]
-        size_info = f"{doc['pages']} trang" if doc["pages"] else f"{doc['chunks']} đoạn"
-        left, right = st.columns([5, 1], vertical_alignment="center")
-        left.markdown(
-            f"{FILE_ICONS.get(ext, '📄')} **{doc['filename']}**  \n:gray[{human_size(doc['size'])} · {size_info}]"
-        )
-        if right.button(":material/delete:", key=f"delete_{doc['id']}", help="Xoá tài liệu", type="tertiary"):
-            pipeline.remove(doc["id"])
-            st.rerun()
+    else:
+        # Nhiều tài liệu (ví dụ cả site đã crawl) thì thu gọn để thanh bên không quá dài
+        with st.expander(f"Đã nạp {len(docs)} tài liệu", expanded=len(docs) <= 10):
+            for doc in docs:
+                ext = doc["file"].rsplit(".", 1)[-1]
+                size_info = f"{doc['pages']} trang" if doc["pages"] else f"{doc['chunks']} đoạn"
+                left, right = st.columns([5, 1], vertical_alignment="center")
+                left.markdown(
+                    f"{FILE_ICONS.get(ext, '📄')} **{doc['filename']}**  \n"
+                    f":gray[{human_size(doc['size'])} · {size_info}]"
+                )
+                if right.button(":material/delete:", key=f"delete_{doc['id']}", help="Xoá tài liệu", type="tertiary"):
+                    pipeline.remove(doc["id"])
+                    st.rerun()
 
     scope = []
     if docs:

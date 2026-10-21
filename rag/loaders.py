@@ -68,8 +68,15 @@ def _load_docx(path: Path) -> list[Section]:
 
 
 def _load_text(path: Path) -> list[Section]:
+    """TXT/Markdown. File do crawler tạo có front matter `url: ...` ở đầu: dùng URL đó làm nguồn trích dẫn."""
     text = _clean(path.read_text(encoding="utf-8-sig", errors="replace"))
-    return [Section(text, "")] if text else []
+    location = ""
+    if text.startswith("---\n") and "\n---\n" in text:
+        header, _, text = text[4:].partition("\n---\n")
+        fields = dict(line.split(": ", 1) for line in header.splitlines() if ": " in line)
+        location = fields.get("url", "")
+    text = text.strip()
+    return [Section(text, location)] if text else []
 
 
 def _clean(text: str) -> str:

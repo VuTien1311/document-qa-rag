@@ -94,4 +94,7 @@ def cited_sources(answer: str, hits: list[dict]) -> list[tuple[int, dict]]:
 
 
 def source_label(hit: dict) -> str:
-    return f"{hit['filename']}, {hit['location']}" if hit["location"] else hit["filename"]
+    location = hit["location"]
+    if location.startswith("http"):  # trang web: bản thân URL đã đủ định danh
+        return location
+    return f"{hit['filename']}, {location}" if location else hit["filename"]

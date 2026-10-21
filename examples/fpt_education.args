@@ -1,0 +1,12 @@
+--sitemap
+https://daihoc.fpt.edu.vn/page-sitemap.xml
+https://daihoc.fpt.edu.vn/major-sitemap.xml
+https://daihoc.fpt.edu.vn/major_group-sitemap.xml
+https://daihoc.fpt.edu.vn/campus-sitemap.xml
+https://fpt.edu.vn/sitemap.xml
+--include
+daihoc\.fpt\.edu\.vn/(hoc-phi-tai-campus|hoc-bong/|chuong-trinh-dao-tao/$|ve-fptu/$|tuyen-sinh/$|phuong-thuc-tuyen-sinh|quy-che-tuyen-sinh|chinh-sach-tai-chinh|faq-|doi-song-sinh-vien|campus-life|chuyen-nganh/|nganh-hoc/|(campus|hcm|can-tho|da-nang)/$)|//fpt\.edu\.vn/(about|don-vi/)
+--exclude
+dang-ky|thank-you|confirm|checkin|portal-hoc-bong|tra-cuu
+--out
+web_docs/fpt_education
