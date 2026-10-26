@@ -15,12 +15,14 @@ _collection = _db.get_or_create_collection("chunks", metadata={"hnsw:space": "co
 # ---------- Chunk + vector ----------
 
 
-def add_chunks(doc_id: str, filename: str, chunks: list[dict], embeddings: list[list[float]], start: int = 0) -> None:
+def add_chunks(doc: dict, chunks: list[dict], embeddings: list[list[float]], start: int = 0) -> None:
+    """`doc` cần id, filename, title; mỗi chunk lưu kèm để hiển thị nguồn mà không phải tra lại danh sách tài liệu."""
+    meta = {"doc_id": doc["id"], "filename": doc["filename"], "title": doc["title"]}
     _collection.add(
-        ids=[f"{doc_id}:{start + i}" for i in range(len(chunks))],
+        ids=[f"{doc['id']}:{start + i}" for i in range(len(chunks))],
         documents=[c["text"] for c in chunks],
         embeddings=embeddings,
-        metadatas=[{"doc_id": doc_id, "filename": filename, "location": c["location"]} for c in chunks],
+        metadatas=[meta | {"location": c["location"]} for c in chunks],
     )
 
 

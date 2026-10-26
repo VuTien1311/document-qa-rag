@@ -62,7 +62,9 @@ def test_crawl_saves_main_content_with_source_url(fetcher, tmp_path):
     assert "robots.txt" in results[1][1]
     assert len(saved) == 1
 
-    [section], _ = load_document(saved[0])
+    doc = load_document(saved[0])
+    [section] = doc.sections
+    assert doc.title == "Học phí"
     assert section.location == f"{SITE}/hoc-phi/"
     assert "31.600.000 đồng" in section.text
     assert "Liên hệ" not in section.text  # menu bị loại
@@ -72,5 +74,5 @@ def test_crawl_saves_main_content_with_source_url(fetcher, tmp_path):
 def test_markdown_without_front_matter_is_plain_text(tmp_path):
     path = tmp_path / "note.md"
     path.write_text("---\nkhông phải front matter vì không đóng", encoding="utf-8")
-    [section], _ = load_document(path)
+    [section] = load_document(path).sections
     assert section.location == "" and "không phải front matter" in section.text

@@ -3,6 +3,7 @@
 import hashlib
 import re
 import time
+from collections import Counter
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from .chunker import split_text
 from .loaders import load_document
 
 EMBED_BATCH_SIZE = 16
+CANDIDATE_POOL = 4  # lấy TOP_K * 4 chunk ứng viên rồi mới chọn TOP_K chunk đa dạng nguồn
 
 SYSTEM_PROMPT = """Bạn là trợ lý trả lời câu hỏi dựa trên tài liệu của người dùng.
 Quy tắc:
@@ -33,17 +35,20 @@ def ingest(filename: str, data: bytes, on_progress: Callable[[float], None] | No
     path = config.FILES_DIR / f"{doc_id}{Path(filename).suffix.lower()}"
     path.write_bytes(data)
     try:
-        sections, pages = load_document(path)
+        document = load_document(path)
+        doc = {"id": doc_id, "filename": filename, "title": document.title or Path(filename).stem}
         chunks = [
             {"text": text, "location": section.location}
-            for section in sections
+            for section in document.sections
             for text in split_text(section.text, config.CHUNK_SIZE, config.CHUNK_OVERLAP)
         ]
         if not chunks:
             raise ValueError("Không đọc được nội dung chữ nào trong tài liệu.")
+        store.delete_chunks(doc_id)  # dọn chunk còn sót nếu lần nạp trước bị ngắt giữa chừng
         for start in range(0, len(chunks), EMBED_BATCH_SIZE):
             batch = chunks[start : start + EMBED_BATCH_SIZE]
-            store.add_chunks(doc_id, filename, batch, llm.embed([c["text"] for c in batch], "document"), start)
+            vectors = llm.embed([with_context(doc["title"], c) for c in batch], "document")
+            store.add_chunks(doc, batch, vectors, start)
             if on_progress:
                 on_progress(min(start + EMBED_BATCH_SIZE, len(chunks)) / len(chunks))
     except Exception:
@@ -51,17 +56,25 @@ def ingest(filename: str, data: bytes, on_progress: Callable[[float], None] | No
         path.unlink(missing_ok=True)
         raise
 
-    doc = {
-        "id": doc_id,
-        "filename": filename,
+    doc |= {
         "file": path.name,
         "size": len(data),
-        "pages": pages,
+        "pages": document.pages,
         "chunks": len(chunks),
         "added_at": time.strftime("%Y-%m-%d %H:%M"),
     }
     store.save_document(doc)
     return doc
+
+
+def with_context(title: str, chunk: dict) -> str:
+    """Văn bản đem đi embedding: chunk kèm tiêu đề tài liệu và vị trí (chỉ dùng để tạo vector, không hiển thị).
+
+    Chunk cắt giữa một bảng học phí có thể không còn chữ "Quy Nhơn" nào; thiếu dòng tiêu đề này thì
+    vector của nó không biết mình thuộc trang nào và bị xếp hạng thấp với câu hỏi về Quy Nhơn.
+    """
+    header = " — ".join(part for part in (title, chunk["location"]) if part)
+    return f"{header}\n\n{chunk['text']}"
 
 
 def remove(doc_id: str) -> None:
@@ -75,9 +88,29 @@ def remove(doc_id: str) -> None:
 
 
 def retrieve(question: str, doc_ids: list[str] | None = None) -> list[dict]:
-    """Tìm kiếm ngữ nghĩa: embed câu hỏi rồi lấy các chunk có vector gần nhất."""
+    """Tìm kiếm ngữ nghĩa: embed câu hỏi, lấy các chunk có vector gần nhất rồi chọn TOP_K chunk đưa cho LLM."""
     [query_vector] = llm.embed([question], "query")
-    return store.search(query_vector, config.TOP_K, doc_ids)
+    candidates = store.search(query_vector, config.TOP_K * CANDIDATE_POOL, doc_ids)
+    return select_chunks(candidates, config.TOP_K, config.MAX_CHUNKS_PER_DOC)
+
+
+def select_chunks(candidates: list[dict], k: int, max_per_doc: int) -> list[dict]:
+    """k chunk liên quan nhất, mỗi tài liệu góp tối đa max_per_doc chunk (0 = không giới hạn).
+
+    Vì chunk được embed kèm tiêu đề, mọi chunk của một trang khớp tiêu đề câu hỏi đều được xếp hạng cao và có thể
+    chiếm hết k chỗ; câu hỏi liệt kê cần thông tin rải trên nhiều trang thì bị trả lời thiếu. Giới hạn quá chặt
+    (1–2) lại cắt mất đoạn chứa đáp án nằm sâu trong một trang dài; 3 là mức đo được tốt nhất (xem README).
+    """
+    if not max_per_doc:
+        return candidates[:k]
+    chosen, per_doc = [], Counter()
+    for hit in candidates:
+        if per_doc[hit["doc_id"]] < max_per_doc:
+            chosen.append(hit)
+            per_doc[hit["doc_id"]] += 1
+            if len(chosen) == k:
+                break
+    return chosen
 
 
 def generate(question: str, hits: list[dict]) -> Iterator[str]:

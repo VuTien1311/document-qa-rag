@@ -4,14 +4,16 @@ python cli.py add sample_docs                     # nạp cả thư mục (hoặ
 python cli.py list
 python cli.py ask "Chính sách hoàn tiền như thế nào?"
 python cli.py crawl @examples/fpt_education.args  # tải trang web công khai về web_docs/
+python cli.py eval eval/fpt_questions.jsonl --answers  # đo chất lượng trên bộ câu hỏi có nhãn
 """
 
 import argparse
+import json
 import sys
 from collections.abc import Iterator
 from pathlib import Path
 
-from rag import llm, pipeline, store
+from rag import config, evaluation, llm, pipeline, store
 from rag.crawler import Fetcher, crawl
 from rag.loaders import SUPPORTED_TYPES
 
@@ -25,6 +27,33 @@ def expand(paths: list[Path]) -> Iterator[Path]:
             yield from sorted(p for p in path.rglob("*") if p.suffix.lower().lstrip(".") in SUPPORTED_TYPES)
         else:
             yield path
+
+
+def run_eval(questions_path: Path, with_answers: bool, types: list[str] | None, out: Path | None) -> None:
+    questions = [q for q in evaluation.load_questions(questions_path) if not types or q["type"] in types]
+    answer = (lambda question, hits: "".join(pipeline.generate(question, hits))) if with_answers else None
+    results = evaluation.evaluate(
+        questions,
+        pipeline.retrieve,
+        answer,
+        on_result=lambda r: print(r["id"], end=" ", flush=True),  # tiến độ
+    )
+
+    k = config.TOP_K
+    headers = ["loại", "n", f"Hit@{k}", "MRR", f"Recall@{k}", "Coverage", "Refusal"]
+    print("\n\n" + "".join(f"{h:>11}" for h in headers))
+    for name, scores in evaluation.summarize(results).items():
+        cells = [name, scores["n"], *(f"{scores[m]:.2f}" if m in scores else "-" for m in evaluation.METRICS)]
+        print("".join(f"{c:>11}" for c in cells))
+
+    if misses := evaluation.failures(results):
+        print("\nCâu chưa đạt:")
+        for question_id, reason in misses:
+            print(f"  {question_id}: {reason}")
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\nKết quả từng câu: {out}")
 
 
 def main() -> None:
@@ -44,6 +73,11 @@ def main() -> None:
     web.add_argument("--limit", type=int, help="số trang tối đa")
     web.add_argument("--delay", type=float, default=1.0, help="số giây chờ giữa 2 request (mặc định 1)")
     web.add_argument("--out", type=Path, default=Path("web_docs"), help="thư mục lưu (mặc định web_docs)")
+    ev = commands.add_parser("eval", help="đo chất lượng trên bộ câu hỏi có nhãn")
+    ev.add_argument("questions", type=Path, help="file JSONL, ví dụ eval/fpt_questions.jsonl")
+    ev.add_argument("--answers", action="store_true", help="chấm cả câu trả lời (mỗi câu một lượt gọi LLM)")
+    ev.add_argument("--type", nargs="*", choices=evaluation.QUESTION_TYPES, help="chỉ chạy các loại câu này")
+    ev.add_argument("--out", type=Path, help="lưu kết quả từng câu ra file JSON")
     args = parser.parse_args()
 
     if args.command == "list":
@@ -75,6 +109,10 @@ def main() -> None:
                 print(f"✓ {doc['filename']}: {doc['chunks']} chunk")
             except Exception as e:  # một file lỗi không làm dừng cả lượt nạp
                 print(f"✗ {path.name}: {e}")
+        return
+
+    if args.command == "eval":
+        run_eval(args.questions, args.answers, args.type, args.out)
         return
 
     hits = pipeline.retrieve(args.question)

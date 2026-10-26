@@ -1,7 +1,7 @@
 import pymupdf
 import pytest
 
-from rag import config, pipeline, store
+from rag import config, llm, pipeline, store
 
 SAMPLE_DOCS = config.BASE_DIR / "sample_docs"
 
@@ -24,6 +24,26 @@ def test_same_content_is_not_ingested_twice(docs):
     again = pipeline.ingest("ten_khac.pdf", (SAMPLE_DOCS / "Huong_dan_su_dung.pdf").read_bytes())
     assert again["id"] == docs["Huong_dan_su_dung.pdf"]["id"]
     assert len(store.list_documents()) == 3
+
+
+def test_chunks_are_embedded_with_document_context(monkeypatch):
+    embedded, original_embed = [], llm.embed
+    monkeypatch.setattr(llm, "embed", lambda texts, kind: embedded.extend(texts) or original_embed(texts, kind))
+    doc = pipeline.ingest("Bang_gia.txt", "Ngôn ngữ Anh | 11.060.000".encode())
+    try:
+        assert embedded == ["Bang_gia\n\nNgôn ngữ Anh | 11.060.000"]  # vector biết chunk thuộc tài liệu nào
+        [hit] = [h for h in pipeline.retrieve("Ngôn ngữ Anh") if h["doc_id"] == doc["id"]]
+        assert hit["text"] == "Ngôn ngữ Anh | 11.060.000"  # nội dung lưu và hiển thị không kèm tiêu đề
+        assert hit["title"] == doc["title"] == "Bang_gia"  # tiêu đề có sẵn để giao diện hiển thị
+    finally:
+        pipeline.remove(doc["id"])
+
+
+def test_select_chunks_caps_chunks_per_document():
+    hits = [{"doc_id": d} for d in "aaaabbc"]
+    assert [h["doc_id"] for h in pipeline.select_chunks(hits, 4, max_per_doc=0)] == list("aaaa")
+    assert [h["doc_id"] for h in pipeline.select_chunks(hits, 4, max_per_doc=3)] == list("aaab")
+    assert [h["doc_id"] for h in pipeline.select_chunks(hits, 4, max_per_doc=1)] == list("abc")
 
 
 def test_retrieve_finds_the_right_page(docs):

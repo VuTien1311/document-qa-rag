@@ -17,19 +17,25 @@ class Section:
     location: str  # "trang 5", "mục 2. Chính sách bảo hành"... hoặc "" nếu không xác định được
 
 
-def load_document(path: Path) -> tuple[list[Section], int | None]:
-    """Trả về (các phần văn bản, số trang). Chỉ PDF mới có số trang."""
+@dataclass
+class Document:
+    sections: list[Section]
+    pages: int | None = None  # chỉ PDF mới có số trang
+    title: str = ""  # tiêu đề trong front matter (trang web do crawler tải về), rỗng nếu không có
+
+
+def load_document(path: Path) -> Document:
     ext = path.suffix.lower().lstrip(".")
     if ext == "pdf":
         return _load_pdf(path)
     if ext == "docx":
-        return _load_docx(path), None
+        return Document(_load_docx(path))
     if ext in ("txt", "md"):
-        return _load_text(path), None
+        return _load_text(path)
     raise ValueError(f"Chưa hỗ trợ định dạng .{ext}")
 
 
-def _load_pdf(path: Path) -> tuple[list[Section], int]:
+def _load_pdf(path: Path) -> Document:
     """Mỗi trang là một phần, nên chunk không bao giờ vắt qua 2 trang và trích dẫn đúng số trang."""
     with pymupdf.open(path) as pdf:
         page_count = pdf.page_count
@@ -37,7 +43,7 @@ def _load_pdf(path: Path) -> tuple[list[Section], int]:
     sections = [s for s in sections if s.text]
     if page_count and not sections:
         raise ValueError("PDF không có lớp chữ (có thể là ảnh scan). Cần chạy OCR trước khi nạp.")
-    return sections, page_count
+    return Document(sections, pages=page_count)
 
 
 def _load_docx(path: Path) -> list[Section]:
@@ -67,16 +73,16 @@ def _load_docx(path: Path) -> list[Section]:
     return sections
 
 
-def _load_text(path: Path) -> list[Section]:
-    """TXT/Markdown. File do crawler tạo có front matter `url: ...` ở đầu: dùng URL đó làm nguồn trích dẫn."""
+def _load_text(path: Path) -> Document:
+    """TXT/Markdown. File do crawler tạo có front matter (title, url) ở đầu: URL dùng làm nguồn trích dẫn."""
     text = _clean(path.read_text(encoding="utf-8-sig", errors="replace"))
-    location = ""
+    fields = {}
     if text.startswith("---\n") and "\n---\n" in text:
         header, _, text = text[4:].partition("\n---\n")
         fields = dict(line.split(": ", 1) for line in header.splitlines() if ": " in line)
-        location = fields.get("url", "")
     text = text.strip()
-    return [Section(text, location)] if text else []
+    sections = [Section(text, fields.get("url", ""))] if text else []
+    return Document(sections, title=fields.get("title", ""))
 
 
 def _clean(text: str) -> str:

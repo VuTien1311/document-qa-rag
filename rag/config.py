@@ -26,7 +26,10 @@ REGISTRY_PATH = DATA_DIR / "documents.json"  # danh sách tài liệu đã nạp
 
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 1000))  # số ký tự mỗi chunk
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 200))  # số ký tự chồng lấn giữa 2 chunk liền nhau
-TOP_K = int(os.getenv("TOP_K", 5))  # số chunk đưa cho LLM mỗi câu hỏi
+# Số chunk đưa cho LLM mỗi câu hỏi, và mỗi tài liệu góp tối đa bao nhiêu chunk (0 = không giới hạn).
+# Cả hai được chọn theo kết quả đánh giá trong README.
+TOP_K = int(os.getenv("TOP_K", 10))
+MAX_CHUNKS_PER_DOC = int(os.getenv("MAX_CHUNKS_PER_DOC", 3))
 TEMPERATURE = float(os.getenv("TEMPERATURE", 0.1))  # thấp để bám sát tài liệu
 NUM_CTX = int(os.getenv("NUM_CTX", 8192))  # context window khi chạy Ollama (token)
 
