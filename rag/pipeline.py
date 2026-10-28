@@ -14,13 +14,43 @@ from .loaders import load_document
 EMBED_BATCH_SIZE = 16
 CANDIDATE_POOL = 4  # lấy TOP_K * 4 chunk ứng viên rồi mới chọn TOP_K chunk đa dạng nguồn
 
-SYSTEM_PROMPT = """Bạn là trợ lý trả lời câu hỏi dựa trên tài liệu của người dùng.
-Quy tắc:
-1. Chỉ dùng thông tin trong các đoạn trích được cung cấp, không dùng kiến thức bên ngoài.
-2. Sau mỗi ý, ghi số của đoạn trích làm nguồn trong ngoặc vuông, ví dụ: [1] hoặc [2][3].
-3. Nếu các đoạn trích không có thông tin để trả lời, chỉ trả lời:
-   "Mình không tìm thấy thông tin này trong tài liệu." Không được bịa.
-4. Trả lời ngắn gọn, rõ ràng, bằng cùng ngôn ngữ với câu hỏi. Không liệt kê lại danh sách nguồn ở cuối."""
+SYSTEM_PROMPT = """You answer questions using only the user's documents.
+Rules:
+1. Use only information from the provided excerpts, never outside knowledge.
+2. After each claim, cite the excerpt number in square brackets, e.g. [1] or [2][3].
+3. If the excerpts do not contain the answer, reply only with the "not found" sentence given after the question.
+   Never make anything up.
+4. Answer concisely and clearly, in the language requested after the question, even if the excerpts are in another
+   language. Do not list the sources again at the end."""
+
+NOT_FOUND = {
+    "Vietnamese": "Mình không tìm thấy thông tin này trong tài liệu.",
+    "English": "I could not find this information in the documents.",
+}
+_VIETNAMESE_LETTERS = re.compile(r"[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]")
+# Từ tiếng Việt hay gặp khi gõ không dấu; chọn những từ không trùng từ tiếng Anh thông dụng
+_VIETNAMESE_WORDS = {
+    "bao", "nhieu", "khong", "nhung", "cua", "nao", "hoc", "phi", "nganh", "truong", "duoc", "thi", "sao", "voi",
+    "minh", "toi", "lam", "nhu", "nay", "gi", "cac", "mot", "trong", "dang", "ky",
+}  # fmt: skip
+_ENGLISH_WORDS = {
+    "the", "what", "which", "who", "when", "where", "why", "how", "is", "are", "does", "do", "can", "of", "for",
+    "in", "at", "a", "an", "to", "many", "much", "and", "or", "there", "have", "has",
+}  # fmt: skip
+
+
+def question_language(question: str) -> str:
+    """ "Vietnamese" hoặc "English", tuỳ bên nào có nhiều từ đặc trưng hơn.
+
+    Từ tiếng Việt là từ có dấu hoặc từ gõ không dấu quen thuộc ("hoc phi bao nhieu"); từ tiếng Anh là các từ chức năng
+    (what, the, does...). Đếm thay vì chỉ tìm chữ có dấu, vì câu tiếng Anh hay nhắc tên riêng tiếng Việt
+    ("the Chiến binh công nghệ scholarship"). Chỉ dặn LLM "trả lời cùng ngôn ngữ với câu hỏi" là chưa đủ: đoạn trích
+    tiếng Việt kéo câu trả lời cho câu hỏi tiếng Anh sang tiếng Việt (đo được 2/6 câu).
+    """
+    words = re.findall(r"\w+", question.lower())
+    vietnamese = sum(bool(_VIETNAMESE_LETTERS.search(w)) or w in _VIETNAMESE_WORDS for w in words)
+    english = sum(w in _ENGLISH_WORDS for w in words)
+    return "Vietnamese" if vietnamese > english else "English"
 
 
 # ---------- 1. Nạp tài liệu (Document Ingestion) ----------
@@ -43,7 +73,7 @@ def ingest(filename: str, data: bytes, on_progress: Callable[[float], None] | No
             for text in split_text(section.text, config.CHUNK_SIZE, config.CHUNK_OVERLAP)
         ]
         if not chunks:
-            raise ValueError("Không đọc được nội dung chữ nào trong tài liệu.")
+            raise ValueError("No text could be extracted from this document.")
         store.delete_chunks(doc_id)  # dọn chunk còn sót nếu lần nạp trước bị ngắt giữa chừng
         for start in range(0, len(chunks), EMBED_BATCH_SIZE):
             batch = chunks[start : start + EMBED_BATCH_SIZE]
@@ -116,7 +146,9 @@ def select_chunks(candidates: list[dict], k: int, max_per_doc: int) -> list[dict
 def generate(question: str, hits: list[dict]) -> Iterator[str]:
     """Đánh số các chunk tìm được thành [1], [2]... rồi nhờ LLM trả lời kèm số nguồn."""
     context = "\n\n".join(f"[{i}] ({source_label(hit)})\n{hit['text']}" for i, hit in enumerate(hits, start=1))
-    return llm.chat_stream(SYSTEM_PROMPT, f"Các đoạn trích:\n\n{context}\n\nCâu hỏi: {question}")
+    language = question_language(question)
+    instructions = f'Answer in {language}. "Not found" sentence: "{NOT_FOUND[language]}"'
+    return llm.chat_stream(SYSTEM_PROMPT, f"Excerpts:\n\n{context}\n\nQuestion: {question}\n\n{instructions}")
 
 
 def cited_sources(answer: str, hits: list[dict]) -> list[tuple[int, dict]]:

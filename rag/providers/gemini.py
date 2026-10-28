@@ -50,13 +50,13 @@ def chat_stream(system: str, prompt: str) -> Iterator[str]:
 def check_ready() -> list[str]:
     if not (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")):
         return [
-            "Chưa có `GEMINI_API_KEY`. Tạo key miễn phí tại https://aistudio.google.com/apikey "
-            "rồi ghi vào file `.env` (copy từ `.env.example`)."
+            "`GEMINI_API_KEY` is not set. Create a free key at https://aistudio.google.com/apikey "
+            "and put it in a `.env` file (copy `.env.example`)."
         ]
     problems = []
     for name in (config.EMBED_MODEL, config.LLM_MODEL):
         try:
             _get_client().models.get(model=name)
         except Exception as e:
-            problems.append(f"Không dùng được model `{name}`: {e}")
+            problems.append(f"Model `{name}` is not available: {e}")
     return problems

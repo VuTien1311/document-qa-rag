@@ -14,7 +14,7 @@ SUPPORTED_TYPES = ("pdf", "docx", "txt", "md")
 @dataclass
 class Section:
     text: str
-    location: str  # "trang 5", "mục 2. Chính sách bảo hành"... hoặc "" nếu không xác định được
+    location: str  # "page 5", "section 2. Chính sách bảo hành"... hoặc "" nếu không xác định được
 
 
 @dataclass
@@ -32,17 +32,17 @@ def load_document(path: Path) -> Document:
         return Document(_load_docx(path))
     if ext in ("txt", "md"):
         return _load_text(path)
-    raise ValueError(f"Chưa hỗ trợ định dạng .{ext}")
+    raise ValueError(f"Unsupported file type .{ext}")
 
 
 def _load_pdf(path: Path) -> Document:
     """Mỗi trang là một phần, nên chunk không bao giờ vắt qua 2 trang và trích dẫn đúng số trang."""
     with pymupdf.open(path) as pdf:
         page_count = pdf.page_count
-        sections = [Section(_clean(page.get_text()), f"trang {i}") for i, page in enumerate(pdf, start=1)]
+        sections = [Section(_clean(page.get_text()), f"page {i}") for i, page in enumerate(pdf, start=1)]
     sections = [s for s in sections if s.text]
     if page_count and not sections:
-        raise ValueError("PDF không có lớp chữ (có thể là ảnh scan). Cần chạy OCR trước khi nạp.")
+        raise ValueError("This PDF has no text layer (probably a scan). Run OCR on it before adding it.")
     return Document(sections, pages=page_count)
 
 
@@ -54,7 +54,7 @@ def _load_docx(path: Path) -> list[Section]:
     def flush():
         text = _clean("\n".join(lines))
         if text:
-            sections.append(Section(text, f"mục {heading}" if heading else ""))
+            sections.append(Section(text, f"section {heading}" if heading else ""))
         lines.clear()
 
     for block in docx.Document(path).iter_inner_content():  # đoạn văn và bảng theo đúng thứ tự

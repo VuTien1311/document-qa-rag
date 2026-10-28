@@ -13,6 +13,6 @@ if config.PROVIDER == "ollama":
 elif config.PROVIDER == "gemini":
     from .providers.gemini import chat_stream, check_ready, embed
 else:
-    raise ValueError(f"PROVIDER không hợp lệ: {config.PROVIDER!r} (chọn 'gemini' hoặc 'ollama')")
+    raise ValueError(f"Invalid PROVIDER {config.PROVIDER!r}: use 'gemini' or 'ollama'")
 
 __all__ = ["chat_stream", "check_ready", "embed"]

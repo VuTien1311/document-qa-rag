@@ -9,10 +9,12 @@ Phần tìm kiếm (chỉ tốn lượt gọi embedding):
     Recall@K  tỉ lệ nguồn đúng xuất hiện trong K chunk, quan trọng với câu hỏi liệt kê
 Phần câu trả lời (mỗi câu một lượt gọi LLM):
     Coverage  tỉ lệ ý mong đợi xuất hiện trong câu trả lời
+    Cited     tỉ lệ câu trả lời (không phải từ chối) có ít nhất một trích dẫn [n]
     Refusal   câu hỏi ngoài dữ liệu được trả lời "không tìm thấy" thay vì bịa
 """
 
 import json
+import re
 import time
 import unicodedata
 from collections.abc import Callable
@@ -22,8 +24,8 @@ from typing import TypeVar
 
 T = TypeVar("T")
 QUESTION_TYPES = ("fact", "list", "negative")
-METRICS = ("hit", "rr", "recall", "coverage", "refusal")
-REFUSAL_PHRASE = "không tìm thấy"
+METRICS = ("hit", "rr", "recall", "coverage", "cited", "refusal")
+REFUSAL_PHRASES = ("không tìm thấy", "could not find")  # câu từ chối tiếng Việt và tiếng Anh trong prompt
 
 
 def load_questions(path: Path) -> list[dict]:
@@ -52,7 +54,7 @@ def coverage(answer: str, expected: list[str]) -> float:
 
 
 def is_refusal(answer: str) -> bool:
-    return REFUSAL_PHRASE in _normalize(answer)
+    return any(phrase in _normalize(answer) for phrase in REFUSAL_PHRASES)
 
 
 def evaluate(
@@ -82,6 +84,7 @@ def evaluate(
                     row["refusal"] = float(is_refusal(row["answer"]))
                 else:
                     row["coverage"] = coverage(row["answer"], q["expected"])
+                    row["cited"] = float(bool(re.search(r"\[\d+", row["answer"])))
         except Exception as e:
             row["error"] = f"{type(e).__name__}: {e}"[:300]
         results.append(row)
@@ -95,13 +98,15 @@ def failures(results: list[dict]) -> list[tuple[str, str]]:
     reasons = []
     for r in results:
         if "error" in r:
-            reasons.append((r["id"], f"lỗi khi chạy, không chấm được: {r['error'][:120]}"))
+            reasons.append((r["id"], f"error, not scored: {r['error'][:120]}"))
         elif r.get("hit") == 0.0:
-            reasons.append((r["id"], "không tìm được nguồn đúng"))
+            reasons.append((r["id"], "correct source not retrieved"))
         elif r.get("coverage", 1.0) < 1.0:
-            reasons.append((r["id"], f"câu trả lời thiếu ý (coverage {r['coverage']:.0%})"))
+            reasons.append((r["id"], f"incomplete answer (coverage {r['coverage']:.0%})"))
         elif r.get("refusal") == 0.0:
-            reasons.append((r["id"], "trả lời câu ngoài dữ liệu thay vì từ chối"))
+            reasons.append((r["id"], "answered an out-of-scope question instead of refusing"))
+        elif r.get("cited") == 0.0:
+            reasons.append((r["id"], "answer has no [n] citation"))
     return reasons
 
 
@@ -124,7 +129,7 @@ def _retry(call: Callable[[], T], attempts: int, delay: float) -> T:
             if attempt == attempts - 1:
                 raise
             time.sleep(delay * 2**attempt)
-    raise ValueError("attempts phải >= 1")
+    raise ValueError("attempts must be >= 1")
 
 
 def _normalize(text: str) -> str:

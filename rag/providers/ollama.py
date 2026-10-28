@@ -28,9 +28,9 @@ def check_ready() -> list[str]:
     try:
         installed = {m.model for m in _client.list().models}
     except Exception:
-        return ["Không kết nối được Ollama. Hãy mở ứng dụng Ollama (hoặc chạy `ollama serve`)."]
+        return ["Cannot reach Ollama. Open the Ollama app (or run `ollama serve`)."]
     return [
-        f"Chưa có model `{name}`. Chạy: `ollama pull {name}`"
+        f"Model `{name}` is missing. Run `ollama pull {name}`"
         for name in (config.EMBED_MODEL, config.LLM_MODEL)
         if name not in installed and f"{name}:latest" not in installed
     ]

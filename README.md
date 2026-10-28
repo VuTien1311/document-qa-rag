@@ -4,13 +4,14 @@ Question answering over your own documents with **RAG (Retrieval-Augmented Gener
 files, or crawl a website, then ask questions: every answer **cites its sources** (file and page/section, or the web
 page URL) so users can verify it.
 
-![Demo: answering questions over public FPT University admissions pages](docs/demo.jpg)
+![Demo: an English question answered from a Vietnamese PDF, with the cited page](docs/demo.jpg)
 
 - PDF (cited by page), DOCX (cited by heading, tables included), TXT/Markdown and crawled web pages (cited by URL)
 - Semantic search with vector embeddings and ChromaDB, optionally restricted to selected documents
 - Streaming answers where every claim carries a source number `[1]`, `[2]` that expands to the original passage
-- Chat UI with suggested questions, readable source titles, answer time, delete confirmation and plain-language
-  errors (quota exhausted, invalid API key)
+- Chat UI with a one-click sample-document loader, suggested questions, readable source titles, answer time,
+  👍/👎 feedback (logged to grow the evaluation set), delete confirmation and plain-language errors
+- Ask in English or Vietnamese: answers follow the language of the question, whatever the document language
 - **Web crawler** for public sites that respects robots.txt
 - **Evaluation suite** (51 labeled questions) used to choose settings from measurements rather than guesswork
 - Runs for free: **Gemini API** (free tier) or **Ollama** (local models), switched with one setting
@@ -69,11 +70,14 @@ GEMINI_API_KEY=your-key
 streamlit run app.py
 ```
 
-Open http://localhost:8501 (the app only listens on localhost), upload the files in `sample_docs/` (documents of a
-fictional company) and try the suggested questions, for example:
+Open http://localhost:8501 (the app only listens on localhost), click **Load sample documents** in the sidebar
+(Vietnamese documents of a fictional company) and try a suggested question, or ask your own, for example:
 
-- *Máy lọc không khí báo lỗi E2 thì phải làm gì?* (What should I do when the air purifier shows error E2?)
-- *Công ty có bán ô tô không?* (Does the company sell cars? Not in the documents, so the app must say it found nothing.)
+- *What should I do when the air purifier shows error E2?*
+- *Does the company sell cars?* (Not in the documents, so the app must say it could not find it.)
+
+Each 👍/👎 is appended to `data/<embedding model>/feedback.jsonl` with the question, answer and sources, so poorly
+answered questions can be labeled and added to the evaluation set.
 
 From the command line:
 
@@ -134,11 +138,13 @@ facts a correct answer must include:
 | MRR | Mean of 1 / rank of the first correct chunk: higher means correct sources rank first |
 | Recall@K | Share of the correct sources retrieved in the K chunks; matters for list questions |
 | Coverage | Share of required facts present in the answer |
+| Cited | Share of answers that cite at least one source `[n]` |
 | Correct refusals | Out-of-scope questions answered with "not found" |
 
 ```bash
-python cli.py eval eval/fpt_questions.jsonl            # retrieval only (51 embedding calls)
-python cli.py eval eval/fpt_questions.jsonl --answers  # also score answers (51 more LLM calls)
+python cli.py eval eval/fpt_questions.jsonl               # retrieval only (51 embedding calls)
+python cli.py eval eval/fpt_questions.jsonl --answers     # also score answers (51 more LLM calls)
+python cli.py eval eval/fpt_questions_en.jsonl --answers  # 6 English questions over the Vietnamese pages
 ```
 
 ### Results
@@ -153,7 +159,16 @@ Gemini `gemini-3.5-flash-lite` + `gemini-embedding-2`; 83 FPT pages plus 3 sampl
 | **K=10 + titles + at most 3 chunks per document (default)** | **1.00** | **0.94** | **0.71** | **100%** | 97.8% | 4/4 |
 
 With 51 questions, a difference of one or two questions is not statistically strong evidence; what each step does show
-is which concrete failures it fixed without introducing new ones.
+is which concrete failures it fixed without introducing new ones. In the default configuration every answer cites at
+least one source (94% at baseline).
+
+**English questions** ([`eval/fpt_questions_en.jsonl`](eval/fpt_questions_en.jsonl)): 6 questions asked in English
+over the Vietnamese pages score Hit@10 1.00, coverage 100%, every answer cited and 1/1 correct refusal. The first run
+exposed a bug the keyword metrics could not see: 4 of the 6 were answered in **Vietnamese**, pulled along by the
+Vietnamese excerpts. Telling the model to answer "in the language of the question" fixed only half of them, so the
+language is now detected in code (Vietnamese words versus English function words, so an English question that names a
+Vietnamese scholarship still counts as English) and stated explicitly in the prompt, together with the matching "not
+found" sentence. All 6 English answers are now in English and all 51 Vietnamese answers stay in Vietnamese.
 
 **Error analysis** (reading every failure to find its cause instead of tuning blindly):
 
@@ -210,7 +225,7 @@ rag/
 tests/                  pytest (crawler tests use a mocked website, no real requests)
 sample_docs/            Sample documents (fictional company)
 examples/               Example crawl configuration
-eval/                   Labeled evaluation questions
+eval/                   Labeled evaluation questions (Vietnamese and English)
 ```
 
 ## Configuration
@@ -235,6 +250,8 @@ After changing `CHUNK_SIZE`, delete `data/` and ingest the documents again.
   belongs to. Because this makes chunks of the same page similar to each other, retrieval takes 40 candidates and keeps
   at most 3 chunks per document in the final 10.
 - **DOCX is cited by section**: Word files do not store page numbers, so the nearest heading is used as the location.
+- **Answer language is set in code**: the question is classified as Vietnamese or English and the prompt names the
+  language explicitly, because Vietnamese excerpts otherwise pull answers to English questions into Vietnamese.
 - **Unicode NFC normalization**: the same Vietnamese letter can be stored precomposed or decomposed depending on the
   editor; without normalization identical words would not match during search.
 - **Guarding against made-up answers**: the prompt allows only the provided excerpts, requires a source after every

@@ -1,10 +1,10 @@
-"""Dùng RAG trên terminal, không cần giao diện.
+"""Command-line interface.
 
-python cli.py add sample_docs                     # nạp cả thư mục (hoặc từng file)
+python cli.py add sample_docs                          # add a folder (or individual files)
 python cli.py list
 python cli.py ask "Chính sách hoàn tiền như thế nào?"
-python cli.py crawl @examples/fpt_education.args  # tải trang web công khai về web_docs/
-python cli.py eval eval/fpt_questions.jsonl --answers  # đo chất lượng trên bộ câu hỏi có nhãn
+python cli.py crawl @examples/fpt_education.args       # download public web pages into web_docs/
+python cli.py eval eval/fpt_questions.jsonl --answers  # score quality on a labeled question set
 """
 
 import argparse
@@ -21,7 +21,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 
 def expand(paths: list[Path]) -> Iterator[Path]:
-    """Thư mục được thay bằng mọi file hỗ trợ bên trong (kể cả thư mục con)."""
+    """Folders are replaced by every supported file inside them, including subfolders."""
     for path in paths:
         if path.is_dir():
             yield from sorted(p for p in path.rglob("*") if p.suffix.lower().lstrip(".") in SUPPORTED_TYPES)
@@ -36,53 +36,53 @@ def run_eval(questions_path: Path, with_answers: bool, types: list[str] | None, 
         questions,
         pipeline.retrieve,
         answer,
-        on_result=lambda r: print(r["id"], end=" ", flush=True),  # tiến độ
+        on_result=lambda r: print(r["id"], end=" ", flush=True),  # progress
     )
 
     k = config.TOP_K
-    headers = ["loại", "n", f"Hit@{k}", "MRR", f"Recall@{k}", "Coverage", "Refusal"]
+    headers = ["type", "n", f"Hit@{k}", "MRR", f"Recall@{k}", "Coverage", "Cited", "Refusal"]
     print("\n\n" + "".join(f"{h:>11}" for h in headers))
     for name, scores in evaluation.summarize(results).items():
         cells = [name, scores["n"], *(f"{scores[m]:.2f}" if m in scores else "-" for m in evaluation.METRICS)]
         print("".join(f"{c:>11}" for c in cells))
 
     if misses := evaluation.failures(results):
-        print("\nCâu chưa đạt:")
+        print("\nNot passed:")
         for question_id, reason in misses:
             print(f"  {question_id}: {reason}")
     if out:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"\nKết quả từng câu: {out}")
+        print(f"\nPer-question results: {out}")
 
 
 def main() -> None:
-    # fromfile_prefix_chars: "@file.args" đọc tham số từ file, mỗi dòng một tham số
+    # fromfile_prefix_chars: "@file.args" reads arguments from a file, one per line
     parser = argparse.ArgumentParser(description="Document QA RAG (CLI)", fromfile_prefix_chars="@")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("add", help="nạp tài liệu (file hoặc thư mục)").add_argument("paths", nargs="+", type=Path)
-    commands.add_parser("list", help="liệt kê tài liệu đã nạp")
-    ask = commands.add_parser("ask", help="đặt câu hỏi")
+    commands.add_parser("add", help="add documents (files or folders)").add_argument("paths", nargs="+", type=Path)
+    commands.add_parser("list", help="list added documents")
+    ask = commands.add_parser("ask", help="ask a question")
     ask.add_argument("question")
-    ask.add_argument("--show-context", action="store_true", help="in ra các chunk tìm được")
-    web = commands.add_parser("crawl", help="tải trang web công khai về thành Markdown")
-    web.add_argument("--sitemap", nargs="*", default=[], help="URL sitemap, lọc bằng --include/--exclude")
-    web.add_argument("--url", nargs="*", default=[], help="URL trang lẻ, luôn được tải")
-    web.add_argument("--include", help="regex: chỉ lấy URL sitemap khớp mẫu này")
-    web.add_argument("--exclude", help="regex: bỏ URL sitemap khớp mẫu này")
-    web.add_argument("--limit", type=int, help="số trang tối đa")
-    web.add_argument("--delay", type=float, default=1.0, help="số giây chờ giữa 2 request (mặc định 1)")
-    web.add_argument("--out", type=Path, default=Path("web_docs"), help="thư mục lưu (mặc định web_docs)")
-    ev = commands.add_parser("eval", help="đo chất lượng trên bộ câu hỏi có nhãn")
-    ev.add_argument("questions", type=Path, help="file JSONL, ví dụ eval/fpt_questions.jsonl")
-    ev.add_argument("--answers", action="store_true", help="chấm cả câu trả lời (mỗi câu một lượt gọi LLM)")
-    ev.add_argument("--type", nargs="*", choices=evaluation.QUESTION_TYPES, help="chỉ chạy các loại câu này")
-    ev.add_argument("--out", type=Path, help="lưu kết quả từng câu ra file JSON")
+    ask.add_argument("--show-context", action="store_true", help="print the retrieved chunks")
+    web = commands.add_parser("crawl", help="download public web pages as Markdown")
+    web.add_argument("--sitemap", nargs="*", default=[], help="sitemap URLs, filtered by --include/--exclude")
+    web.add_argument("--url", nargs="*", default=[], help="individual page URLs, always downloaded")
+    web.add_argument("--include", help="regex: keep only sitemap URLs matching it")
+    web.add_argument("--exclude", help="regex: drop sitemap URLs matching it")
+    web.add_argument("--limit", type=int, help="maximum number of pages")
+    web.add_argument("--delay", type=float, default=1.0, help="seconds to wait between requests (default 1)")
+    web.add_argument("--out", type=Path, default=Path("web_docs"), help="output folder (default web_docs)")
+    ev = commands.add_parser("eval", help="score quality on a labeled question set")
+    ev.add_argument("questions", type=Path, help="JSONL file, e.g. eval/fpt_questions.jsonl")
+    ev.add_argument("--answers", action="store_true", help="also score answers (one LLM call per question)")
+    ev.add_argument("--type", nargs="*", choices=evaluation.QUESTION_TYPES, help="only run these question types")
+    ev.add_argument("--out", type=Path, help="save per-question results to a JSON file")
     args = parser.parse_args()
 
     if args.command == "list":
         for doc in store.list_documents():
-            print(f"{doc['id']}  {doc['filename']}  ({doc['chunks']} chunk)")
+            print(f"{doc['id']}  {doc['filename']}  ({doc['chunks']} chunks)")
         return
 
     if args.command == "crawl":
@@ -96,7 +96,7 @@ def main() -> None:
             fetcher=Fetcher(args.delay),
             on_page=lambda url, path, status: print(f"{'✓' if path else '✗'} {url}  {status}"),
         )
-        print(f"\nĐã lưu {len(saved)} trang vào {args.out}")
+        print(f"\nSaved {len(saved)} pages to {args.out}")
         return
 
     if problems := llm.check_ready():
@@ -106,8 +106,8 @@ def main() -> None:
         for path in expand(args.paths):
             try:
                 doc = pipeline.ingest(path.name, path.read_bytes())
-                print(f"✓ {doc['filename']}: {doc['chunks']} chunk")
-            except Exception as e:  # một file lỗi không làm dừng cả lượt nạp
+                print(f"✓ {doc['filename']}: {doc['chunks']} chunks")
+            except Exception as e:  # one bad file should not stop the rest
                 print(f"✗ {path.name}: {e}")
         return
 
@@ -117,18 +117,18 @@ def main() -> None:
 
     hits = pipeline.retrieve(args.question)
     if not hits:
-        sys.exit("Chưa nạp tài liệu nào.")
+        sys.exit("No documents added yet.")
     if args.show_context:
         for i, hit in enumerate(hits, start=1):
-            print(f"--- [{i}] {pipeline.source_label(hit)} (độ liên quan {hit['score']:.2f})\n{hit['text']}\n")
+            print(f"--- [{i}] {pipeline.source_label(hit)} (relevance {hit['score']:.2f})\n{hit['text']}\n")
 
     answer = ""
     for piece in pipeline.generate(args.question, hits):
         print(piece, end="", flush=True)
         answer += piece
-    print("\n\nNguồn:")
+    print("\n\nSources:")
     for n, hit in pipeline.cited_sources(answer, hits):
-        print(f"  [{n}] {pipeline.source_label(hit)}  (độ liên quan {hit['score']:.2f})")
+        print(f"  [{n}] {pipeline.source_label(hit)}  (relevance {hit['score']:.2f})")
 
 
 if __name__ == "__main__":

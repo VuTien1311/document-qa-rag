@@ -2,5 +2,8 @@
 gatherUsageStats = false
 
 [server]
-address = "localhost"  # chỉ truy cập được từ máy này, không mở ra mạng LAN/Internet
+address = "localhost"  # only reachable from this machine, not from the LAN or the internet
 maxUploadSize = 50  # MB
+
+[theme]
+primaryColor = "#2563EB"

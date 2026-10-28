@@ -14,7 +14,7 @@ def test_pdf_split_by_page():
     doc = load_document(SAMPLE_DOCS / "Huong_dan_su_dung.pdf")
     assert doc.pages == 4
     sections = doc.sections
-    assert sections[2].location == "trang 3"
+    assert sections[2].location == "page 3"
     assert "Vệ sinh và xử lý lỗi" in sections[2].text
     assert "\xa0" not in sections[2].text
 
@@ -24,9 +24,9 @@ def test_docx_split_by_heading_and_reads_tables():
     assert doc.pages is None
     sections = doc.sections
     assert [s.location for s in sections][1:] == [
-        "mục 1. Chính sách hoàn tiền",
-        "mục 2. Chính sách bảo hành",
-        "mục 3. Kênh hỗ trợ",
+        "section 1. Chính sách hoàn tiền",
+        "section 2. Chính sách bảo hành",
+        "section 3. Kênh hỗ trợ",
     ]
     assert "Bộ lọc HEPA thay thế | 6 tháng" in sections[2].text
 
@@ -41,7 +41,7 @@ def test_text_is_normalized_to_nfc(tmp_path):
 def test_unsupported_type(tmp_path):
     path = tmp_path / "data.xlsx"
     path.write_bytes(b"abc")
-    with pytest.raises(ValueError, match="Chưa hỗ trợ"):
+    with pytest.raises(ValueError, match="Unsupported"):
         load_document(path)
 
 

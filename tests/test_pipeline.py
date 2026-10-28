@@ -39,6 +39,30 @@ def test_chunks_are_embedded_with_document_context(monkeypatch):
         pipeline.remove(doc["id"])
 
 
+@pytest.mark.parametrize(
+    ("question", "language"),
+    [
+        ("Học phí ngành AI bao nhiêu?", "Vietnamese"),
+        ("hoc phi nganh AI bao nhieu", "Vietnamese"),  # gõ không dấu
+        ("What is the tuition for AI at the Hanoi campus?", "English"),
+        ("How many places does the Chiến binh công nghệ scholarship have?", "English"),  # câu Anh nhắc tên riêng Việt
+        ("Học phí ngành Software Engineering là bao nhiêu?", "Vietnamese"),  # câu Việt nhắc từ tiếng Anh
+    ],
+)
+def test_question_language(question, language):
+    assert pipeline.question_language(question) == language
+
+
+def test_generate_asks_for_the_question_language(monkeypatch):
+    prompts = []
+    monkeypatch.setattr(llm, "chat_stream", lambda system, prompt: prompts.append(prompt) or iter(["ok"]))
+    hit = {"text": "Học phí 31.600.000", "location": "https://a/", "filename": "a.md"}
+    "".join(pipeline.generate("What is the tuition?", [hit]))
+    assert prompts[0].endswith(
+        'Answer in English. "Not found" sentence: "I could not find this information in the documents."'
+    )
+
+
 def test_select_chunks_caps_chunks_per_document():
     hits = [{"doc_id": d} for d in "aaaabbc"]
     assert [h["doc_id"] for h in pipeline.select_chunks(hits, 4, max_per_doc=0)] == list("aaaa")
@@ -48,7 +72,7 @@ def test_select_chunks_caps_chunks_per_document():
 
 def test_retrieve_finds_the_right_page(docs):
     hits = pipeline.retrieve("Máy báo lỗi E2 thì phải làm gì?")
-    assert pipeline.source_label(hits[0]) == "Huong_dan_su_dung.pdf, trang 3"
+    assert pipeline.source_label(hits[0]) == "Huong_dan_su_dung.pdf, page 3"
 
 
 def test_retrieve_can_be_scoped_to_documents(docs):

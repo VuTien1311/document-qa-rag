@@ -28,7 +28,7 @@ class Fetcher:
 
     def get(self, url: str) -> httpx.Response:
         if not self.allowed(url):
-            raise PermissionError(f"robots.txt không cho phép: {url}")
+            raise PermissionError(f"blocked by robots.txt: {url}")
         return self._get(url)
 
     def allowed(self, url: str) -> bool:
@@ -117,9 +117,9 @@ def crawl(
             response = fetcher.get(url)
             page = extract_page(response.text, url) if response.status_code == 200 else None
             path = save_page(out_dir, url, *page) if page else None
-            status = "ok" if path else f"bỏ qua (HTTP {response.status_code} hoặc không có nội dung)"
+            status = "ok" if path else f"skipped (HTTP {response.status_code} or no main content)"
         except (httpx.HTTPError, PermissionError) as e:
-            path, status = None, f"lỗi: {e}"
+            path, status = None, f"error: {e}"
         if path:
             saved.append(path)
         if on_page:

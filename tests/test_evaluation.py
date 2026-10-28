@@ -21,7 +21,7 @@ def hit(url: str) -> dict:
 
 def test_source_of_uses_url_for_web_pages_and_filename_otherwise():
     assert source_of(hit("https://a/")) == "https://a/"
-    assert source_of({"location": "trang 3", "filename": "doc.pdf"}) == "doc.pdf"
+    assert source_of({"location": "page 3", "filename": "doc.pdf"}) == "doc.pdf"
 
 
 def test_retrieval_scores():
@@ -37,20 +37,21 @@ def test_coverage_is_case_insensitive_and_supports_alternatives():
 
 def test_refusal():
     assert is_refusal("Mình KHÔNG TÌM THẤY thông tin này trong tài liệu.")
+    assert is_refusal("I could not find this information in the documents.")
     assert not is_refusal("Có, trường đào tạo ngành Y.")
 
 
 def test_evaluate_and_summarize():
     retrieved = {"học phí?": ["https://a/"], "học bổng?": ["https://b/", "https://x/"], "ngành Y?": ["https://x/"]}
-    answers = {"học phí?": "31.600.000 đồng", "học bổng?": "Có X", "ngành Y?": "Mình không tìm thấy."}
+    answers = {"học phí?": "31.600.000 đồng [1].", "học bổng?": "Có X", "ngành Y?": "Mình không tìm thấy."}
     results = evaluate(
         QUESTIONS,
         retrieve=lambda q: [hit(u) for u in retrieved[q]],
         answer=lambda q, hits: answers[q],
     )
     summary = summarize(results)
-    assert summary["fact"] == {"n": 1, "hit": 1.0, "rr": 1.0, "recall": 1.0, "coverage": 1.0}
-    assert summary["list"] == {"n": 1, "hit": 1.0, "rr": 1.0, "recall": 0.5, "coverage": 0.5}
+    assert summary["fact"] == {"n": 1, "hit": 1.0, "rr": 1.0, "recall": 1.0, "coverage": 1.0, "cited": 1.0}
+    assert summary["list"] == {"n": 1, "hit": 1.0, "rr": 1.0, "recall": 0.5, "coverage": 0.5, "cited": 0.0}
     assert summary["negative"] == {"n": 1, "refusal": 1.0}
     assert summary["all"]["n"] == 3 and summary["all"]["hit"] == 1.0
 
@@ -71,7 +72,7 @@ def test_evaluate_retries_transient_errors_and_survives_permanent_ones():
     assert by_id["f1"]["coverage"] == 1.0 and calls["học phí?"] == 2
     assert "error" in by_id["n1"] and "refusal" not in by_id["n1"]
     assert len(results) == 3  # câu lỗi không làm dừng các câu khác
-    assert ("n1", "lỗi khi chạy, không chấm được: ConnectionError: peer closed connection") in failures(results)
+    assert ("n1", "error, not scored: ConnectionError: peer closed connection") in failures(results)
 
 
 def test_evaluate_without_answers_skips_llm():
