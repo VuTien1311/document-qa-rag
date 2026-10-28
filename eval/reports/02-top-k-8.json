@@ -1,0 +1,55 @@
+{
+  "name": "02-top-k-8",
+  "description": "8 chunks instead of 5.",
+  "date": "2026-10-21",
+  "questions": "fpt_questions.jsonl",
+  "settings": {
+    "llm": "gemini-3.5-flash-lite",
+    "embedding": "gemini-embedding-2",
+    "hybrid_search": false,
+    "top_k": 8,
+    "max_chunks_per_doc": 0,
+    "titles_in_embeddings": false
+  },
+  "summary": {
+    "all": {
+      "n": 51,
+      "hit": 0.9787234042553191,
+      "rr": 0.926241134751773,
+      "recall": 0.8966312056737589,
+      "coverage": 0.9787234042553191,
+      "cited": 0.9574468085106383,
+      "refusal": 1.0
+    },
+    "fact": {
+      "n": 38,
+      "hit": 0.9736842105263158,
+      "rr": 0.9087719298245615,
+      "recall": 0.9473684210526315,
+      "coverage": 0.9736842105263158,
+      "cited": 0.9473684210526315
+    },
+    "list": {
+      "n": 9,
+      "hit": 1.0,
+      "rr": 1.0,
+      "recall": 0.6824074074074074,
+      "coverage": 1,
+      "cited": 1.0
+    },
+    "negative": {
+      "n": 4,
+      "refusal": 1.0
+    }
+  },
+  "failures": [
+    [
+      "f30",
+      "answer has no [n] citation"
+    ],
+    [
+      "f34",
+      "correct source not retrieved"
+    ]
+  ]
+}

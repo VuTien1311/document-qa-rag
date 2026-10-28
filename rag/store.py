@@ -33,9 +33,31 @@ def search(query_embedding: list[float], top_k: int, doc_ids: list[str] | None =
     where = {"doc_id": {"$in": doc_ids}} if doc_ids else None
     res = _collection.query(query_embeddings=[query_embedding], n_results=top_k, where=where)
     return [
-        {"text": text, **meta, "score": 1 - distance}
-        for text, meta, distance in zip(res["documents"][0], res["metadatas"][0], res["distances"][0], strict=True)
+        {"id": chunk_id, "text": text, **meta, "score": 1 - distance}
+        for chunk_id, text, meta, distance in zip(
+            res["ids"][0], res["documents"][0], res["metadatas"][0], res["distances"][0], strict=True
+        )
     ]
+
+
+def all_chunks() -> list[dict]:
+    """Mọi chunk (không kèm vector), cho tìm kiếm từ khoá."""
+    res = _collection.get(include=["documents", "metadatas"])
+    return [
+        {"id": chunk_id, "text": text, **meta, "score": None}
+        for chunk_id, text, meta in zip(res["ids"], res["documents"], res["metadatas"], strict=True)
+    ]
+
+
+def get_chunk(chunk_id: str) -> dict | None:
+    res = _collection.get(ids=[chunk_id], include=["documents", "metadatas"])
+    if not res["ids"]:
+        return None
+    return {"id": chunk_id, "text": res["documents"][0], **res["metadatas"][0], "score": None}
+
+
+def chunk_count() -> int:
+    return _collection.count()
 
 
 def delete_chunks(doc_id: str) -> None:

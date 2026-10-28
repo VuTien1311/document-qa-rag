@@ -1,0 +1,43 @@
+{
+  "name": "followups-no-rewrite",
+  "description": "Follow-up questions searched as typed.",
+  "date": "2026-10-28",
+  "questions": "fpt_followups.jsonl",
+  "settings": {
+    "llm": "gemini-3.5-flash-lite",
+    "embedding": "gemini-embedding-2",
+    "hybrid_search": false,
+    "top_k": 10,
+    "max_chunks_per_doc": 3,
+    "titles_in_embeddings": true,
+    "rewrite_follow_ups": false
+  },
+  "summary": {
+    "all": {
+      "n": 6,
+      "hit": 1.0,
+      "rr": 0.8055555555555556,
+      "recall": 1.0,
+      "coverage": 0.6666666666666666,
+      "cited": 0.8333333333333334
+    },
+    "fact": {
+      "n": 6,
+      "hit": 1.0,
+      "rr": 0.8055555555555556,
+      "recall": 1.0,
+      "coverage": 0.6666666666666666,
+      "cited": 0.8333333333333334
+    }
+  },
+  "failures": [
+    [
+      "c01",
+      "incomplete answer (coverage 0%)"
+    ],
+    [
+      "c06",
+      "incomplete answer (coverage 0%)"
+    ]
+  ]
+}

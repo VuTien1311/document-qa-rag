@@ -63,6 +63,21 @@ def test_generate_asks_for_the_question_language(monkeypatch):
     )
 
 
+def test_standalone_question_rewrites_only_with_history(monkeypatch):
+    prompts = []
+    rewritten = "Học phí ngành AI ở campus Đà Nẵng là bao nhiêu?"
+    monkeypatch.setattr(llm, "chat_stream", lambda system, prompt: prompts.append(prompt) or iter([f" {rewritten}\n"]))
+    assert pipeline.standalone_question("Còn ở Đà Nẵng thì sao?", []) == "Còn ở Đà Nẵng thì sao?"
+    assert prompts == []  # không có lịch sử thì không tốn lượt gọi LLM
+
+    history = [
+        {"role": "user", "content": "Học phí ngành AI ở Hà Nội?"},
+        {"role": "assistant", "content": "22.120.000"},
+    ]
+    assert pipeline.standalone_question("Còn ở Đà Nẵng thì sao?", history) == rewritten
+    assert "Học phí ngành AI ở Hà Nội?" in prompts[0] and prompts[0].endswith("Last question: Còn ở Đà Nẵng thì sao?")
+
+
 def test_select_chunks_caps_chunks_per_document():
     hits = [{"doc_id": d} for d in "aaaabbc"]
     assert [h["doc_id"] for h in pipeline.select_chunks(hits, 4, max_per_doc=0)] == list("aaaa")

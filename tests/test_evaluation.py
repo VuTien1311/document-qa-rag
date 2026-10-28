@@ -75,6 +75,27 @@ def test_evaluate_retries_transient_errors_and_survives_permanent_ones():
     assert ("n1", "error, not scored: ConnectionError: peer closed connection") in failures(results)
 
 
+def test_evaluate_rewrites_follow_up_questions_before_retrieval():
+    follow_up = {
+        "id": "c1",
+        "type": "fact",
+        "history": [{"role": "user", "content": "Học phí ở Hà Nội?"}],
+        "question": "Còn Đà Nẵng?",
+        "relevant": ["https://dn/"],
+        "expected": ["15.480.000"],
+    }
+    searched = []
+    results = evaluate(
+        [follow_up, QUESTIONS[0]],
+        retrieve=lambda q: searched.append(q) or [hit("https://dn/")],
+        answer=lambda q, hits: f"{q}: 15.480.000 [1]",
+        rewrite=lambda question, history: "Học phí ở Đà Nẵng?",
+    )
+    assert searched == ["Học phí ở Đà Nẵng?", "học phí?"]  # câu không có lịch sử không bị viết lại
+    assert results[0]["query"] == "Học phí ở Đà Nẵng?" and "query" not in results[1]
+    assert results[0]["coverage"] == 1.0
+
+
 def test_evaluate_without_answers_skips_llm():
     results = evaluate(QUESTIONS[:1], retrieve=lambda q: [hit("https://z/")])
     assert "answer" not in results[0] and results[0]["hit"] == 0.0

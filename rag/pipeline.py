@@ -7,7 +7,7 @@ from collections import Counter
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
-from . import config, llm, store
+from . import config, keyword_search, llm, store
 from .chunker import split_text
 from .loaders import load_document
 
@@ -22,6 +22,11 @@ Rules:
    Never make anything up.
 4. Answer concisely and clearly, in the language requested after the question, even if the excerpts are in another
    language. Do not list the sources again at the end."""
+
+REWRITE_PROMPT = """Rewrite the user's last question so that it can be understood without the conversation.
+Fill in what it refers to (the program, campus, scholarship...) from the earlier messages, keep its meaning and its
+language. If it is already self-contained, return it unchanged. Output only the question."""
+HISTORY_MESSAGES = 6  # số tin nhắn gần nhất đưa vào khi viết lại câu hỏi nối tiếp
 
 NOT_FOUND = {
     "Vietnamese": "Mình không tìm thấy thông tin này trong tài liệu.",
@@ -118,10 +123,28 @@ def remove(doc_id: str) -> None:
 
 
 def retrieve(question: str, doc_ids: list[str] | None = None) -> list[dict]:
-    """Tìm kiếm ngữ nghĩa: embed câu hỏi, lấy các chunk có vector gần nhất rồi chọn TOP_K chunk đưa cho LLM."""
+    """Lấy chunk ứng viên bằng vector (và từ khoá nếu bật HYBRID_SEARCH) rồi chọn TOP_K chunk đưa cho LLM."""
     [query_vector] = llm.embed([question], "query")
-    candidates = store.search(query_vector, config.TOP_K * CANDIDATE_POOL, doc_ids)
+    pool = config.TOP_K * CANDIDATE_POOL
+    candidates = store.search(query_vector, pool, doc_ids)
+    if config.HYBRID_SEARCH:
+        candidates = reciprocal_rank_fusion(candidates, keyword_search.search(question, pool, doc_ids))
     return select_chunks(candidates, config.TOP_K, config.MAX_CHUNKS_PER_DOC)
+
+
+def reciprocal_rank_fusion(*rankings: list[dict], k: int = 60) -> list[dict]:
+    """Trộn nhiều bảng xếp hạng: mỗi chunk được cộng 1/(k + hạng) ở từng bảng có nó.
+
+    Chỉ dùng thứ hạng nên không cần quy đổi điểm cosine và điểm BM25 (hai thang đo khác nhau) về cùng thang.
+    """
+    scores: dict[str, float] = {}
+    hits: dict[str, dict] = {}
+    for ranking in rankings:
+        for rank, hit in enumerate(ranking, start=1):
+            scores[hit["id"]] = scores.get(hit["id"], 0.0) + 1 / (k + rank)
+            if hits.get(hit["id"], {}).get("score") is None:
+                hits[hit["id"]] = hit  # ưu tiên bản có điểm cosine (từ tìm kiếm vector) để hiển thị
+    return [hits[chunk_id] for chunk_id in sorted(scores, key=scores.get, reverse=True)]
 
 
 def select_chunks(candidates: list[dict], k: int, max_per_doc: int) -> list[dict]:
@@ -141,6 +164,19 @@ def select_chunks(candidates: list[dict], k: int, max_per_doc: int) -> list[dict
             if len(chosen) == k:
                 break
     return chosen
+
+
+def standalone_question(question: str, history: list[dict]) -> str:
+    """Câu hỏi nối tiếp ("Còn ở Đà Nẵng thì sao?") được viết lại thành câu hỏi đầy đủ trước khi tìm kiếm.
+
+    `history` là các tin nhắn trước đó dạng {"role": "user" | "assistant", "content": ...}. Không có lịch sử thì trả
+    nguyên câu hỏi, không tốn lượt gọi LLM.
+    """
+    if not history:
+        return question
+    turns = "\n".join(f"{m['role']}: {m['content'][:600]}" for m in history[-HISTORY_MESSAGES:])
+    rewritten = "".join(llm.chat_stream(REWRITE_PROMPT, f"Conversation:\n{turns}\n\nLast question: {question}"))
+    return rewritten.strip() or question
 
 
 def generate(question: str, hits: list[dict]) -> Iterator[str]:

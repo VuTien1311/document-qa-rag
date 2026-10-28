@@ -30,6 +30,8 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 200))  # số ký tự chồng l�
 # Cả hai được chọn theo kết quả đánh giá trong README.
 TOP_K = int(os.getenv("TOP_K", 10))
 MAX_CHUNKS_PER_DOC = int(os.getenv("MAX_CHUNKS_PER_DOC", 3))
+# Trộn thêm kết quả tìm theo từ khoá (BM25) vào kết quả vector
+HYBRID_SEARCH = os.getenv("HYBRID_SEARCH", "false").lower() in ("1", "true", "yes")
 TEMPERATURE = float(os.getenv("TEMPERATURE", 0.1))  # thấp để bám sát tài liệu
 NUM_CTX = int(os.getenv("NUM_CTX", 8192))  # context window khi chạy Ollama (token)
 

@@ -1,19 +1,22 @@
 # Document QA RAG
 
+[![CI](https://github.com/VuTien1311/document-qa-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/VuTien1311/document-qa-rag/actions/workflows/ci.yml)
+
 Question answering over your own documents with **RAG (Retrieval-Augmented Generation)**. Upload PDF, DOCX or TXT
-files, or crawl a website, then ask questions: every answer **cites its sources** (file and page/section, or the web
-page URL) so users can verify it.
+files, or crawl a website, then ask questions: every answer **cites its sources** and shows the passage, or the
+original PDF page, it came from, so users can verify it.
 
 ![Demo: an English question answered from a Vietnamese PDF, with the cited page](docs/demo.jpg)
 
 - PDF (cited by page), DOCX (cited by heading, tables included), TXT/Markdown and crawled web pages (cited by URL)
-- Semantic search with vector embeddings and ChromaDB, optionally restricted to selected documents
-- Streaming answers where every claim carries a source number `[1]`, `[2]` that expands to the original passage
-- Chat UI with a one-click sample-document loader, suggested questions, readable source titles, answer time,
-  👍/👎 feedback (logged to grow the evaluation set), delete confirmation and plain-language errors
+- **Verifiable answers**: each source opens the excerpt with the supporting lines highlighted and, for PDFs, an image
+  of the original page with the cited passage marked
+- **Follow-up questions** ("and in Da Nang?") are rewritten from the conversation before searching
 - Ask in English or Vietnamese: answers follow the language of the question, whatever the document language
+- **Evaluation suite** (63 labeled questions) and an **Evaluation page** in the app: every setting was chosen from
+  measurements rather than guesswork
+- **REST API** (FastAPI) with streaming answers, **Docker** image and **CI** (lint, tests, image build)
 - **Web crawler** for public sites that respects robots.txt
-- **Evaluation suite** (51 labeled questions) used to choose settings from measurements rather than guesswork
 - Runs for free: **Gemini API** (free tier) or **Ollama** (local models), switched with one setting
 
 ## Architecture
@@ -26,13 +29,16 @@ flowchart LR
         C --> D[Embed with document title]
         D --> E[(ChromaDB)]
     end
-    subgraph QA["2. Question answering"]
-        Q[Question] --> QE[Embed]
-        QE --> R[Top-K nearest chunks]
-        R --> L[LLM]
-        L --> ANS[Answer + cited sources]
+    subgraph QA["2. Question answering (pipeline.py)"]
+        Q[Question + history] --> RW[Rewrite follow-up]
+        RW --> QE[Embed]
+        QE --> R[40 candidates → top 10,<br/>at most 3 per document]
+        R --> L[LLM, answer language set in code]
+        L --> ANS[Answer + cited sources<br/>+ highlighted evidence]
     end
     E -.-> R
+    ANS --> UI[Streamlit UI<br/>app.py]
+    ANS --> API[REST API<br/>api.py]
 ```
 
 | Component | Technology |
@@ -41,7 +47,7 @@ flowchart LR
 | Embeddings | `gemini-embedding-2` (768 dimensions) or Ollama `bge-m3` |
 | Vector store | ChromaDB, cosine distance |
 | Parsing | PyMuPDF, python-docx, trafilatura (web pages) |
-| UI | Streamlit |
+| UI / API | Streamlit / FastAPI |
 
 ## Setup
 
@@ -59,27 +65,57 @@ Create a free Gemini API key at https://aistudio.google.com/apikey, copy `.env.e
 GEMINI_API_KEY=your-key
 ```
 
-> - `.env` is in `.gitignore`: **never commit your API key**. If a key leaks, delete it in AI Studio.
+> - `.env` is in `.gitignore` and `.dockerignore`: **never commit your API key**. If a key leaks, delete it in AI Studio.
 > - Without a linked billing account you stay on the free tier and cannot be charged; when the quota runs out the API
 >   returns HTTP 429 and the app retries or explains the error.
 > - Free-tier requests may be used by Google to improve its products. Use Ollama for sensitive documents.
 
 ## Usage
 
+### Web UI
+
 ```bash
 streamlit run app.py
 ```
 
-Open http://localhost:8501 (the app only listens on localhost), click **Load sample documents** in the sidebar
-(Vietnamese documents of a fictional company) and try a suggested question, or ask your own, for example:
+Open http://localhost:8501 (the app only listens on localhost), click **Load sample documents** (Vietnamese documents
+of a fictional company) and try a suggested question, or ask your own, for example:
 
-- *What should I do when the air purifier shows error E2?*
-- *Does the company sell cars?* (Not in the documents, so the app must say it could not find it.)
+- *What should I do when the air purifier shows error E2?* Expand the source to see the original PDF page.
+- *And error E3?* A follow-up: the app shows the full question it searched for.
+- *Does the company sell cars?* Not in the documents, so the app must say it could not find it.
 
-Each 👍/👎 is appended to `data/<embedding model>/feedback.jsonl` with the question, answer and sources, so poorly
-answered questions can be labeled and added to the evaluation set.
+The **Evaluation** page shows the scores of every configuration tried. Each 👍/👎 is appended to
+`data/<embedding model>/feedback.jsonl` with the question, answer and sources, so poorly answered questions can be
+labeled and added to the evaluation set.
 
-From the command line:
+### REST API
+
+```bash
+uvicorn api:app --reload        # interactive docs: http://localhost:8000/docs
+```
+
+```bash
+curl -X POST localhost:8000/ask -H "Content-Type: application/json" -d "{\"question\": \"What is error E2?\"}"
+```
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /documents`, `POST /documents`, `DELETE /documents/{id}` | List, upload (multipart), remove documents |
+| `POST /ask` | Answer with cited sources, evidence lines and the searched query; accepts `history` and `doc_ids` |
+| `POST /ask/stream` | Same, as Server-Sent Events: `token` events while the answer is generated, then `sources` |
+| `GET /chunks/{id}/page.png` | The PDF page of a source with the passage highlighted |
+
+### Docker
+
+```bash
+docker compose up --build       # UI on http://localhost:8501, API docs on http://localhost:8000/docs
+```
+
+Both services read the API key from `.env` and share the `data/` folder; ports are bound to 127.0.0.1 so nobody else on
+the network can use your quota. Avoid adding documents from both at the same time.
+
+### Command line
 
 ```bash
 python cli.py add sample_docs                      # ingest a folder or individual files
@@ -124,13 +160,14 @@ study and research only. Ask the owner for permission before republishing it or 
 
 ## Evaluation
 
-A set of 51 labeled questions over the FPT admissions data lives in
-[`eval/fpt_questions.jsonl`](eval/fpt_questions.jsonl). Each question lists the URLs that contain the answer and the
-facts a correct answer must include:
+Labeled questions over the FPT admissions data, in [`eval/`](eval). Each question lists the URLs that contain the
+answer and the facts a correct answer must include:
 
-- **38 fact questions**: tuition by campus, scholarships, admission rules, program codes...
-- **9 list questions**: answers spread over several pages (all scholarships, tuition across campuses, finance majors...)
-- **4 out-of-scope questions**: the system must say it found nothing instead of making something up
+- [`fpt_questions.jsonl`](eval/fpt_questions.jsonl): **51 Vietnamese questions**: 38 facts (tuition by campus,
+  scholarships, admission rules, program codes...), 9 lists whose answers span several pages, and 4 out-of-scope
+  questions the system must refuse instead of making something up
+- [`fpt_questions_en.jsonl`](eval/fpt_questions_en.jsonl): **6 English questions** over the Vietnamese pages
+- [`fpt_followups.jsonl`](eval/fpt_followups.jsonl): **6 follow-up questions** with the conversation before them
 
 | Metric | Meaning |
 |---|---|
@@ -144,31 +181,33 @@ facts a correct answer must include:
 ```bash
 python cli.py eval eval/fpt_questions.jsonl               # retrieval only (51 embedding calls)
 python cli.py eval eval/fpt_questions.jsonl --answers     # also score answers (51 more LLM calls)
-python cli.py eval eval/fpt_questions_en.jsonl --answers  # 6 English questions over the Vietnamese pages
+python cli.py eval eval/fpt_followups.jsonl --answers --no-rewrite   # compare without follow-up rewriting
+python cli.py eval eval/fpt_questions.jsonl --answers --report eval/reports/my-run.json --description "..."
 ```
+
+`--report` saves a summary (scores and failed question ids, no answers) to [`eval/reports/`](eval/reports), which the
+Evaluation page reads.
 
 ### Results
 
 Gemini `gemini-3.5-flash-lite` + `gemini-embedding-2`; 83 FPT pages plus 3 sample documents (about 550 chunks).
 
-| Configuration | Hit@K | MRR | Recall@K (lists) | Fact coverage | List coverage | Correct refusals |
-|---|---|---|---|---|---|---|
-| Baseline: K=5 | 0.98 | 0.93 | 0.57 | 94.7% | 97.8% | 4/4 |
-| K=8 | 0.98 | 0.93 | 0.68 | 97.4% | 100% | 4/4 |
-| K=8 + document title in embeddings | 0.98 | 0.93 | 0.53 | 97.4% | 89.1% | 4/4 |
-| **K=10 + titles + at most 3 chunks per document (default)** | **1.00** | **0.94** | **0.71** | **100%** | 97.8% | 4/4 |
+| Configuration (51 Vietnamese questions) | Hit@K | MRR | Recall@K (lists) | Fact coverage | List coverage | Cited | Refusals |
+|---|---|---|---|---|---|---|---|
+| Baseline: K=5 | 0.98 | 0.93 | 0.57 | 94.7% | 97.8% | 94% | 4/4 |
+| K=8 | 0.98 | 0.93 | 0.68 | 97.4% | 100% | 96% | 4/4 |
+| K=8 + document title in embeddings | 0.98 | 0.93 | 0.53 | 97.4% | 89.1% | 98% | 4/4 |
+| **K=10 + titles + at most 3 chunks per document (default)** | **1.00** | **0.94** | 0.71 | **100%** | 97.8% | **100%** | 4/4 |
+| Default + hybrid search (rejected) | 1.00 | 0.92 | 0.76 | 94.7% | 90.0% | 94% | 4/4 |
+
+| Other question sets | Coverage | Cited |
+|---|---|---|
+| 6 English questions (default) | 100% | 100% |
+| 6 follow-ups searched as typed | 66.7% | 83% |
+| **6 follow-ups rewritten from the conversation (default)** | **100%** | **100%** |
 
 With 51 questions, a difference of one or two questions is not statistically strong evidence; what each step does show
-is which concrete failures it fixed without introducing new ones. In the default configuration every answer cites at
-least one source (94% at baseline).
-
-**English questions** ([`eval/fpt_questions_en.jsonl`](eval/fpt_questions_en.jsonl)): 6 questions asked in English
-over the Vietnamese pages score Hit@10 1.00, coverage 100%, every answer cited and 1/1 correct refusal. The first run
-exposed a bug the keyword metrics could not see: 4 of the 6 were answered in **Vietnamese**, pulled along by the
-Vietnamese excerpts. Telling the model to answer "in the language of the question" fixed only half of them, so the
-language is now detected in code (Vietnamese words versus English function words, so an English question that names a
-Vietnamese scholarship still counts as English) and stated explicitly in the prompt, together with the matching "not
-found" sentence. All 6 English answers are now in English and all 51 Vietnamese answers stay in Vietnamese.
+is which concrete failures it fixed without introducing new ones.
 
 **Error analysis** (reading every failure to find its cause instead of tuning blindly):
 
@@ -182,24 +221,39 @@ found" sentence. All 6 English answers are now in English and all 51 Vietnamese 
   title matches the question fills the top results. For "Which majors relate to AI and data?" all 8 retrieved chunks
   came from one page (4 distinct pages before). Allowing at most 3 chunks per document, picked from the top 40
   candidates, restored source diversity.
+- English questions were first answered in **Vietnamese** (4 of 6), pulled along by the Vietnamese excerpts; the
+  keyword metrics could not see it. Telling the model to answer "in the language of the question" fixed only half, so
+  the language is now detected in code (Vietnamese words versus English function words, so an English question that
+  names a Vietnamese scholarship still counts as English) and stated in the prompt. All 6 English answers are now in
+  English and all 51 Vietnamese answers stay in Vietnamese.
+- Follow-ups such as *"Còn ở Đà Nẵng thì sao?"* ("And in Da Nang?") retrieved Da Nang pages but the model did not know
+  the question was about AI tuition. Rewriting them into a full question first (one extra LLM call, only when there is
+  a conversation) raised coverage from 66.7% to 100%.
 - Remaining failure: *IT tuition across campuses* omits Quy Nhon. Four other campus pages fill all 10 slots with 2–3
   chunks each, so the Quy Nhon page is not retrieved.
 
 **Tried and rejected:**
 
+- *Hybrid search (BM25 + vectors, reciprocal rank fusion)*: recall went up (lists 0.71 → 0.76) but answers got worse
+  (facts 100% → 94.7%, lists 97.8% → 90%). Keyword search favours pages that repeat words such as "học phí" and
+  "Quy Nhơn" (admissions overview, financial policy), which crowd out the table row with the answer; and for English
+  questions it has no words in common with Vietnamese text (MRR 1.00 → 0.74). Kept behind `HYBRID_SEARCH=true` for
+  document sets with many exact codes.
 - *At most 2 chunks per document*: fixes the Quy Nhon list question but drops a needed passage from long pages. Without
   titles it turned "Who was the first rector?" into a **confidently wrong** answer: the passage with the answer was the
-  page's 3rd chunk and got cut, while the 2nd chunk named the current rector, and the model merged the two. With titles
-  it lost the Da Nang Marketing tuition.
-- *A prompt rule telling the model to merge items from all excerpts for list questions*: no measurable change, so the
-  simpler prompt was kept.
+  page's 3rd chunk and got cut, while the 2nd chunk named the current rector, and the model merged the two.
+- *A prompt rule telling the model to merge items from all excerpts for list questions*: no measurable change.
+- *Reranker*: not added. Gemini has no reranking endpoint on the free tier, and a local cross-encoder would add PyTorch
+  (about 2 GB) for little headroom: the right chunk is already in the top 10 for every question (Hit@10 = 1.00) and
+  the remaining failure is source diversity, not ranking.
 
 > The free tier of `gemini-embedding-2` allows 1,000 requests per day and **every chunk counts as one request**:
 > re-ingesting the data above costs about 550 requests and one evaluation run 51.
 
 ## Tests
 
-Tests use fake embeddings and a fake LLM, so they run without an API key or network access:
+Tests use fake embeddings and a fake LLM, so they run without an API key or network access. CI runs them, the linter
+and a Docker build on every push.
 
 ```bash
 pip install -r requirements-dev.txt
@@ -209,23 +263,29 @@ pytest
 ## Project structure
 
 ```
-app.py                  Streamlit UI
+app.py                  Streamlit entry point (Chat and Evaluation pages)
+ui/chat.py              Chat page: documents, answers, sources with highlighted evidence and PDF pages
+ui/evaluation.py        Evaluation page: scores and charts from eval/reports
+api.py                  FastAPI REST API, including streaming answers
 cli.py                  Command line: add, list, ask, crawl, eval
 rag/
   config.py             Settings (overridable via environment variables / .env)
   crawler.py            Public web pages → Markdown with the source URL
-  evaluation.py         Hit@K, MRR, Recall@K and coverage on a labeled question set
   loaders.py            PDF by page, DOCX by heading, TXT/Markdown; Unicode normalization
   chunker.py            Recursive chunking: paragraph > line > sentence > word, with overlap
   llm.py                Picks the provider; the rest of the code is provider-agnostic
   providers/gemini.py   Gemini API (retries on rate limits)
   providers/ollama.py   Local Ollama models
   store.py              ChromaDB + document registry
-  pipeline.py           ingest() → retrieve() → generate() → cited_sources()
-tests/                  pytest (crawler tests use a mocked website, no real requests)
+  keyword_search.py     BM25 keyword search (optional hybrid search)
+  pipeline.py           ingest() → standalone_question() → retrieve() → generate() → cited_sources()
+  evidence.py           Supporting lines for each citation; highlighted PDF page images
+  evaluation.py         Hit@K, MRR, Recall@K, coverage, citations and refusals on labeled questions
+tests/                  pytest (API, crawler with a mocked website, pipeline, evaluation...)
+eval/                   Labeled questions and summary reports
 sample_docs/            Sample documents (fictional company)
 examples/               Example crawl configuration
-eval/                   Labeled evaluation questions (Vietnamese and English)
+Dockerfile, docker-compose.yml, .github/workflows/ci.yml
 ```
 
 ## Configuration
@@ -237,21 +297,28 @@ eval/                   Labeled evaluation questions (Vietnamese and English)
 | `EMBED_MODEL` | `gemini-embedding-2` | Embedding model |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1000` / `200` | Chunk size and overlap (characters) |
 | `TOP_K` | `10` | Chunks given to the LLM per question (chosen from the evaluation above) |
-| `MAX_CHUNKS_PER_DOC` | `3` | At most this many of those chunks per document, `0` = no limit (see the evaluation) |
+| `MAX_CHUNKS_PER_DOC` | `3` | At most this many of those chunks per document, `0` = no limit |
+| `HYBRID_SEARCH` | `false` | Also rank chunks with BM25 keyword search (worse on this data, see the evaluation) |
 
 Each embedding model gets its own data folder under `data/`, because vectors from different models cannot be compared.
 After changing `CHUNK_SIZE`, delete `data/` and ingest the documents again.
 
 ## Design decisions
 
-- **Chunks never span PDF pages**: each page is chunked separately, so page citations are always exact.
+- **Chunks never span PDF pages**: each page is chunked separately, so page citations are always exact and the
+  original page can be shown.
 - **Embeddings include the document title**: each chunk is embedded together with a "title — location" line (used only
   for the vector, never shown), so a chunk cut from the middle of a table or page still "knows" which document it
   belongs to. Because this makes chunks of the same page similar to each other, retrieval takes 40 candidates and keeps
   at most 3 chunks per document in the final 10.
-- **DOCX is cited by section**: Word files do not store page numbers, so the nearest heading is used as the location.
+- **Evidence highlighting**: for each citation, the lines of the passage sharing the most words and numbers with the
+  sentences citing it are highlighted; numbers and codes ("22.120.000", "E2") count triple, which also works when an
+  English answer cites a Vietnamese document. PDF pages are rendered with PyMuPDF and annotated in memory only.
+- **Follow-up rewriting**: with a conversation, the question is first rewritten into a self-contained one, and the UI
+  shows what was searched. The first question of a conversation costs no extra call.
 - **Answer language is set in code**: the question is classified as Vietnamese or English and the prompt names the
   language explicitly, because Vietnamese excerpts otherwise pull answers to English questions into Vietnamese.
+- **DOCX is cited by section**: Word files do not store page numbers, so the nearest heading is used as the location.
 - **Unicode NFC normalization**: the same Vietnamese letter can be stored precomposed or decomposed depending on the
   editor; without normalization identical words would not match during search.
 - **Guarding against made-up answers**: the prompt allows only the provided excerpts, requires a source after every
@@ -262,10 +329,11 @@ After changing `CHUNK_SIZE`, delete `data/` and ingest the documents again.
 
 ## Limitations and roadmap
 
-- [x] Labeled evaluation set measuring Hit@K / MRR / Recall for retrieval and answer completeness
+- [x] Labeled evaluation sets (Vietnamese, English, follow-ups) and an Evaluation page
+- [x] Follow-up questions that use the chat history
+- [x] Hybrid search (BM25 + vectors): implemented and measured, off by default
+- [x] FastAPI backend, Docker image and CI
 - [ ] Larger evaluation set; grade answers with an LLM judge instead of keyword matching
-- [ ] Hybrid search (BM25 + vectors) to better match keywords, codes and names
-- [ ] Reranker that re-scores chunks before they reach the LLM
-- [ ] Follow-up questions that use the chat history
+- [ ] Repeat table headers in every chunk of a split table
 - [ ] OCR for scanned PDFs; adding URLs directly from the web UI
-- [ ] Separate FastAPI backend, Docker image and deployment
+- [ ] Public deployment of a demo with the sample documents only

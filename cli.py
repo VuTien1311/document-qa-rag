@@ -29,14 +29,15 @@ def expand(paths: list[Path]) -> Iterator[Path]:
             yield path
 
 
-def run_eval(questions_path: Path, with_answers: bool, types: list[str] | None, out: Path | None) -> None:
-    questions = [q for q in evaluation.load_questions(questions_path) if not types or q["type"] in types]
-    answer = (lambda question, hits: "".join(pipeline.generate(question, hits))) if with_answers else None
+def run_eval(args: argparse.Namespace) -> None:
+    questions = [q for q in evaluation.load_questions(args.questions) if not args.type or q["type"] in args.type]
+    answer = (lambda question, hits: "".join(pipeline.generate(question, hits))) if args.answers else None
     results = evaluation.evaluate(
         questions,
         pipeline.retrieve,
         answer,
         on_result=lambda r: print(r["id"], end=" ", flush=True),  # progress
+        rewrite=None if args.no_rewrite else pipeline.standalone_question,
     )
 
     k = config.TOP_K
@@ -50,10 +51,24 @@ def run_eval(questions_path: Path, with_answers: bool, types: list[str] | None, 
         print("\nNot passed:")
         for question_id, reason in misses:
             print(f"  {question_id}: {reason}")
-    if out:
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"\nPer-question results: {out}")
+    if args.out:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\nPer-question results: {args.out}")
+    if args.report:
+        settings = {
+            "top_k": config.TOP_K,
+            "max_chunks_per_doc": config.MAX_CHUNKS_PER_DOC,
+            "hybrid_search": config.HYBRID_SEARCH,
+            "titles_in_embeddings": True,
+            "rewrite_follow_ups": not args.no_rewrite,
+            "llm": config.LLM_MODEL,
+            "embedding": config.EMBED_MODEL,
+        }
+        summary = evaluation.report(args.report.stem, args.description, args.questions.name, settings, results)
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"Summary report: {args.report}")
 
 
 def main() -> None:
@@ -78,6 +93,9 @@ def main() -> None:
     ev.add_argument("--answers", action="store_true", help="also score answers (one LLM call per question)")
     ev.add_argument("--type", nargs="*", choices=evaluation.QUESTION_TYPES, help="only run these question types")
     ev.add_argument("--out", type=Path, help="save per-question results to a JSON file")
+    ev.add_argument("--no-rewrite", action="store_true", help="do not rewrite follow-up questions (for comparison)")
+    ev.add_argument("--report", type=Path, help="save a summary (scores, no answers) for the Evaluation page")
+    ev.add_argument("--description", default="", help="what this run tested, shown on the Evaluation page")
     args = parser.parse_args()
 
     if args.command == "list":
@@ -112,7 +130,7 @@ def main() -> None:
         return
 
     if args.command == "eval":
-        run_eval(args.questions, args.answers, args.type, args.out)
+        run_eval(args)
         return
 
     hits = pipeline.retrieve(args.question)

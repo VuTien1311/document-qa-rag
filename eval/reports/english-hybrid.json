@@ -1,0 +1,46 @@
+{
+  "name": "english-hybrid",
+  "description": "English questions with hybrid search: BM25 cannot match English words to Vietnamese text.",
+  "date": "2026-10-28",
+  "questions": "fpt_questions_en.jsonl",
+  "settings": {
+    "llm": "gemini-3.5-flash-lite",
+    "embedding": "gemini-embedding-2",
+    "hybrid_search": true,
+    "top_k": 10,
+    "max_chunks_per_doc": 3,
+    "titles_in_embeddings": true
+  },
+  "summary": {
+    "all": {
+      "n": 6,
+      "hit": 1.0,
+      "rr": 0.74,
+      "recall": 0.96,
+      "coverage": 1,
+      "cited": 1.0,
+      "refusal": 1.0
+    },
+    "fact": {
+      "n": 4,
+      "hit": 1.0,
+      "rr": 0.675,
+      "recall": 1.0,
+      "coverage": 1,
+      "cited": 1.0
+    },
+    "list": {
+      "n": 1,
+      "hit": 1.0,
+      "rr": 1.0,
+      "recall": 0.8,
+      "coverage": 1,
+      "cited": 1.0
+    },
+    "negative": {
+      "n": 1,
+      "refusal": 1.0
+    }
+  },
+  "failures": []
+}

@@ -1,0 +1,63 @@
+{
+  "name": "03-titles",
+  "description": "Document title embedded with every chunk: one page now fills the top results.",
+  "date": "2026-10-26",
+  "questions": "fpt_questions.jsonl",
+  "settings": {
+    "llm": "gemini-3.5-flash-lite",
+    "embedding": "gemini-embedding-2",
+    "hybrid_search": false,
+    "top_k": 8,
+    "max_chunks_per_doc": 0,
+    "titles_in_embeddings": true
+  },
+  "summary": {
+    "all": {
+      "n": 51,
+      "hit": 0.9787234042553191,
+      "rr": 0.9335106382978723,
+      "recall": 0.8776595744680851,
+      "coverage": 0.9578014184397163,
+      "cited": 0.9787234042553191,
+      "refusal": 1.0
+    },
+    "fact": {
+      "n": 38,
+      "hit": 0.9736842105263158,
+      "rr": 0.9177631578947368,
+      "recall": 0.9605263157894737,
+      "coverage": 0.9736842105263158,
+      "cited": 0.9736842105263158
+    },
+    "list": {
+      "n": 9,
+      "hit": 1.0,
+      "rr": 1.0,
+      "recall": 0.5277777777777778,
+      "coverage": 0.8907407407407407,
+      "cited": 1.0
+    },
+    "negative": {
+      "n": 4,
+      "refusal": 1.0
+    }
+  },
+  "failures": [
+    [
+      "f17",
+      "correct source not retrieved"
+    ],
+    [
+      "l02",
+      "incomplete answer (coverage 60%)"
+    ],
+    [
+      "l06",
+      "incomplete answer (coverage 75%)"
+    ],
+    [
+      "l08",
+      "incomplete answer (coverage 67%)"
+    ]
+  ]
+}

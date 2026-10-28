@@ -1,0 +1,51 @@
+{
+  "name": "04-titles-cap-2",
+  "description": "Rejected: at most 2 chunks per document cuts passages needed for some answers.",
+  "date": "2026-10-26",
+  "questions": "fpt_questions.jsonl",
+  "settings": {
+    "llm": "gemini-3.5-flash-lite",
+    "embedding": "gemini-embedding-2",
+    "hybrid_search": false,
+    "top_k": 10,
+    "max_chunks_per_doc": 2,
+    "titles_in_embeddings": true
+  },
+  "summary": {
+    "all": {
+      "n": 51,
+      "hit": 1.0,
+      "rr": 0.9374366767983789,
+      "recall": 0.9336879432624113,
+      "coverage": 0.9787234042553191,
+      "cited": 0.9787234042553191,
+      "refusal": 1.0
+    },
+    "fact": {
+      "n": 38,
+      "hit": 1.0,
+      "rr": 0.9226190476190477,
+      "recall": 0.9736842105263158,
+      "coverage": 0.9736842105263158,
+      "cited": 0.9736842105263158
+    },
+    "list": {
+      "n": 9,
+      "hit": 1.0,
+      "rr": 1.0,
+      "recall": 0.7648148148148148,
+      "coverage": 1,
+      "cited": 1.0
+    },
+    "negative": {
+      "n": 4,
+      "refusal": 1.0
+    }
+  },
+  "failures": [
+    [
+      "f02",
+      "incomplete answer (coverage 0%)"
+    ]
+  ]
+}

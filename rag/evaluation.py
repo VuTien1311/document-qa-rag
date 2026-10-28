@@ -64,9 +64,11 @@ def evaluate(
     on_result: Callable[[dict], None] | None = None,
     attempts: int = 3,
     retry_delay: float = 2.0,
+    rewrite: Callable[[str, list[dict]], str] | None = None,
 ) -> list[dict]:
     """Kết quả từng câu (để biết câu nào sai): điểm tìm kiếm, và điểm câu trả lời nếu truyền `answer`.
 
+    Câu hỏi nối tiếp mang theo "history"; nếu truyền `rewrite` thì câu hỏi được viết lại từ lịch sử trước khi tìm.
     Một câu lỗi (mạng chập chờn, hết hạn mức) được thử lại `attempts` lần; vẫn lỗi thì ghi vào `error`
     và chấm tiếp các câu khác, thay vì làm hỏng cả lượt chạy.
     """
@@ -74,12 +76,15 @@ def evaluate(
     for q in questions:
         row = {"id": q["id"], "type": q["type"]}
         try:
-            hits = _retry(lambda q=q: retrieve(q["question"]), attempts, retry_delay)
+            query = q["question"]
+            if rewrite and q.get("history"):
+                query = row["query"] = _retry(lambda q=q: rewrite(q["question"], q["history"]), attempts, retry_delay)
+            hits = _retry(lambda query=query: retrieve(query), attempts, retry_delay)
             row["sources"] = [source_of(h) for h in hits]
             if q["relevant"]:
                 row |= retrieval_scores(row["sources"], q["relevant"])
             if answer:
-                row["answer"] = _retry(lambda q=q, hits=hits: answer(q["question"], hits), attempts, retry_delay)
+                row["answer"] = _retry(lambda query=query, hits=hits: answer(query, hits), attempts, retry_delay)
                 if q["type"] == "negative":
                     row["refusal"] = float(is_refusal(row["answer"]))
                 else:
@@ -108,6 +113,19 @@ def failures(results: list[dict]) -> list[tuple[str, str]]:
         elif r.get("cited") == 0.0:
             reasons.append((r["id"], "answer has no [n] citation"))
     return reasons
+
+
+def report(name: str, description: str, questions: str, settings: dict, results: list[dict]) -> dict:
+    """Tóm tắt một lượt đánh giá để lưu vào repo (không kèm câu trả lời) và vẽ lên trang Evaluation."""
+    return {
+        "name": name,
+        "description": description,
+        "date": time.strftime("%Y-%m-%d"),
+        "questions": questions,
+        "settings": settings,
+        "summary": summarize(results),
+        "failures": failures(results),
+    }
 
 
 def summarize(results: list[dict]) -> dict[str, dict[str, float]]:

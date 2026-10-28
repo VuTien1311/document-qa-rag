@@ -1,0 +1,15 @@
+# docker compose up --build   →   UI on http://localhost:8501, API docs on http://localhost:8000/docs
+# Ports are bound to 127.0.0.1 so nobody else on the network can use your Gemini quota.
+services:
+  ui:
+    build: .
+    ports: ["127.0.0.1:8501:8501"]
+    env_file: .env
+    volumes: ["./data:/app/data"]
+
+  api:
+    build: .
+    command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports: ["127.0.0.1:8000:8000"]
+    env_file: .env
+    volumes: ["./data:/app/data"]
